@@ -201,6 +201,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      APLICACION: inf384-lab3
     outputs:
       digest: ${{ steps.referencia.outputs.digest }}
     steps:
@@ -219,6 +221,13 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - id: build
         uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          provenance: false              
+          labels: org.opencontainers.image.title=${{ env.APLICACION }}
+          tags: ${{ steps.registro.outputs.registry }}/${{ env.APLICACION }}:${{ steps.corto.outputs.sha }}
       
       
 
