@@ -41,7 +41,7 @@ jobs:
       - run: terraform fmt -check -recursive
 
       - run: terraform init -backend-config=backend.hcl -input=false
-      
+
       - run: terraform validate
 
   # TODO
@@ -108,11 +108,88 @@ jobs:
   plan:
     needs: [validar, politicas]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    defaults: { run: { working-directory: infra } }
     steps:
-      - name: Sin implementar
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+      
+      - name: Credenciales temporales
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Inicializar
+        run: terraform init -backend-config=backend.hcl -input=false
+
+      - name: Generar el plan
+        run: terraform plan -out=tfplan -input=false
+
+      - name: Exportar el plan a JSON
+        run: terraform show -json tfplan > tfplan.json
+
+      - name: Validar seguridad
+        run: checkov -f tfplan.json
+
+      - name: Guardar el plan para el job aplicar
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: infra/tfplan
+          retention-days: 1
+
+      # Regla 2
+      - name: Plan en texto legible
+        run: terraform show -no-color tfplan > plan.txt
+
+      - name: Publicar el plan en el resumen de la ejecucion
         run: |
-          echo "::error::El job 'plan' no esta implementado."
-          exit 1
+          {
+            echo '### Plan de Terraform'
+            echo
+            echo '<details><summary>Ver plan completo</summary>'
+            echo
+            echo '~~~'
+            cat plan.txt
+            echo '~~~'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+      
+      - name: Comentar el plan en el pull request
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('infra/plan.txt', 'utf8').slice(0, 60000);
+            const body = `### Plan de Terraform\n\n<details><summary>Ver plan completo</summary>\n\n\`\`\`\n${plan}\n\`\`\`\n\n</details>`;
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });
+      
+      # Regla 1
+      - name: Ninguna destruccion sin autorizacion
+        env:
+          AUTORIZADA: ${{ github.event_name == 'workflow_dispatch' && inputs.autorizar_destruccion == true }}
+        run: |
+          n=$(jq '[.resource_changes[]? | select(.change.actions | index("delete"))] | length' tfplan.json)
+          if [ "$n" -gt 0 ]; then
+            echo "::warning::El plan destruye o reemplaza $n recurso(s)."
+            if [ "$AUTORIZADA" != "true" ]; then
+              echo "::error::Destruccion o reemplazo sin autorizacion explicita. Si es intencional, volver a ejecutar como workflow_dispatch con autorizar_destruccion=true."
+              exit 1
+            fi
+            echo "Destruccion autorizada explicitamente via workflow_dispatch."
+          fi
 
   # TODO
   # Aplicar el plan que produjo el job anterior, sin recalcularlo.
@@ -123,8 +200,29 @@ jobs:
     needs: plan
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    defaults: { run: { working-directory: infra } }
     steps:
-      - name: Sin implementar
-        run: |
-          echo "::error::El job 'aplicar' no esta implementado."
-          exit 1
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+      
+      - name: Credenciales temporales
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+      
+      - name: Inicializar
+        run: terraform init -backend-config=backend.hcl -input=false
+
+      - name: Descargar el plan guardado
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+          path: infra
+
+      - name: Aplicar el plan guardado
+        run: terraform apply 
+
