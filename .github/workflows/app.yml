@@ -196,12 +196,31 @@ jobs:
   #
   # Sustituir el paso centinela por la implementacion.
   publicar:
+    needs: [pruebas, calidad, secretos, dependencias, estatico]
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      digest: ${{ steps.referencia.outputs.digest }}
     steps:
-      - name: Sin implementar
-        run: |
-          echo "::error::El job 'publicar' no esta implementado."
-          exit 1
+      - uses: actions/checkout@v4
+      - name: Autenticacion contra registro
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+      - id: registro
+        uses: aws-actions/amazon-ecr-login@v2
+      - id: corto
+        run: echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - id: build
+        uses: docker/build-push-action@v6
+      
+      
 
   # Este job viene completo y no se modifica.
   # Las estrategias de despliegue y la verificacion posterior son contenido
