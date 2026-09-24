@@ -77,9 +77,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
-      - uses: actions/download-artifact@v4
+
+      - name: Reporte coverage
+        uses: actions/download-artifact@v4
         with: { name: cobertura, path: coverage/ }
-      - uses: SonarSource/sonarqube-scan-action@v8
+
+      - name: Analisis de calidad (SonarCloud)
+        uses: SonarSource/sonarqube-scan-action@v8
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io
@@ -105,7 +109,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -149,7 +153,11 @@ jobs:
   estatico:
     runs-on: ubuntu-latest
     steps:
-      - name: Sin implementar
+      - uses: actions/checkout@v4
+
+      - name: Analizar codigo
+        id: semigrep
+        continue-on-error: true   
         run: |
           docker run --rm \
           --volume "${PWD}:/src" \
@@ -207,6 +215,7 @@ jobs:
       digest: ${{ steps.referencia.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
+
       - name: Autenticacion contra registro
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -214,11 +223,15 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: us-east-1
+
       - id: registro
         uses: aws-actions/amazon-ecr-login@v2
+        
       - id: corto
         run: echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
       - uses: docker/setup-buildx-action@v3
+
       - id: build
         uses: docker/build-push-action@v6
         with:
@@ -227,7 +240,14 @@ jobs:
           push: true
           provenance: false              
           labels: org.opencontainers.image.title=${{ env.APLICACION }}
-          tags: ${{ steps.registro.outputs.registry }}/${{ env.APLICACION }}:${{ steps.corto.outputs.sha }}
+          tags: |
+            ${{ steps.registro.outputs.registry }}/${{ env.APLICACION }}:${{ steps.corto.outputs.sha }}
+            ${{ steps.registro.outputs.registry }}/${{ env.APLICACION }}:prd
+            
+      - id: referencia
+        run: |
+          echo "digest=${{ steps.registro.outputs.registry }}/${{ env.APLICACION }}@${{ steps.build.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
       
       
 
