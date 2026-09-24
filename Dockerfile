@@ -4,7 +4,7 @@
 
 # defecto 1
 FROM public.ecr.aws/lambda/nodejs:20 AS build
-WORKDIR /app
+WORKDIR /build
 
 # defecto 2
 COPY package.json package-lock.json ./
@@ -18,7 +18,7 @@ RUN npm run build && npm prune --omit=dev
 # ENV DB_PASSWORD="inf384-clave-en-texto-plano"
 FROM public.ecr.aws/lambda/nodejs:20 AS runtime
 ENV NODE_ENV=production
-WORKDIR /app
+WORKDIR /build
 
 # defecto 5
 # RUN dnf install -y procps-ng vim && dnf clean all
